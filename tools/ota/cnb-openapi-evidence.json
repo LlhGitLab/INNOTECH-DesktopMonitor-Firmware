@@ -1,0 +1,958 @@
+{
+  "source": "https://api.cnb.cool/swagger.json",
+  "retrieved": "2026-11-02",
+  "paths": {
+    "/{repo}/-/releases": {
+      "get": {
+        "description": "分页查询指定仓库中的版本发布列表。返回每个版本的标签名称、标题、描述、发布状态等信息，按创建时间倒序排列。\nPaginate releases of the specified repository. Returns the tag name, title, description, release status, etc. for each release, ordered by creation time in descending order.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "查询版本列表。List releases.",
+        "operationId": "ListReleases",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "default": 1,
+            "description": "分页页码。Page number.",
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "default": 10,
+            "description": "分页页大小。Page size.",
+            "name": "page_size",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/api.Release"
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "description": "在指定仓库中创建版本发布。需指定标签名称和目标提交（commitish），可选设置版本标题、描述、是否为草稿、是否为预发布等。\n如果指定的标签不存在，将基于 `target_commitish` 自动创建标签。通过 `make_latest` 参数\nIf the specified tag does not exist, a tag will be automatically created based on\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:rw",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "创建版本。Create release.",
+        "operationId": "PostRelease",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "创建版本发布表单，附件可选。Post Release Form, attachment is optional.",
+            "name": "create_release_form",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/openapi.PostReleaseForm"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/api.Release"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/download/{tag}/{filename}": {
+      "get": {
+        "description": "302 重定向到有时效的下载地址。\n302 redirect to a time-limited download URL.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "tags": [
+          "Releases"
+        ],
+        "summary": "下载 Release 附件。Download release attachments.",
+        "operationId": "GetReleasesAsset",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "标签名称。示例：`v1.0.0`。Tag name. Example: `v1.0.0`",
+            "name": "tag",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "文件名称。示例：`test.png`",
+            "name": "filename",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "是否可下载;302跳转12h有效最多10次。Downloadable;302 valid 12h,max 10 downloads.",
+            "name": "share",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "head": {
+        "description": "检查 Release 附件是否存在，存在返回 200，不存在返回 404。\nCheck if the release attachment exists. Returns 200 if exists, 404 otherwise.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "tags": [
+          "Releases"
+        ],
+        "summary": "检查 Release 附件。Check release attachment.",
+        "operationId": "HeadReleasesAsset",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "标签名称。示例：`v1.0.0`。Tag name. Example: `v1.0.0`",
+            "name": "tag",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "文件名称。示例：`test.png`",
+            "name": "filename",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/latest": {
+      "get": {
+        "description": "获取指定仓库中最新的正式版本发布。仅返回标记为最新（latest）的版本。如果仓库没有任何符合条件的版本发布，将返回 404 错误。\nGet the latest formal release of the specified repository. Only returns the release marked as latest.\nReturns 404 if the repository has no eligible release.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "获取最新版本。Get latest release.",
+        "operationId": "GetLatestRelease",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/api.Release"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/tags/{tag}": {
+      "get": {
+        "description": "根据 Git 标签名称获取对应的版本发布详情，包括标题、描述、发布状态、附件列表等完整信息。如果该标签没有关联的版本发布，将返回 404 错误。\nGet the release details corresponding to a Git tag name, including title, description, release status, asset list, etc. Returns 404 if the tag has no associated release.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "根据标签获取版本。Get release by tag.",
+        "operationId": "GetReleaseByTag",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "标签名称。Tag name.",
+            "name": "tag",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/api.Release"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/{release_id}": {
+      "get": {
+        "description": "根据版本 ID 获取指定版本的详细信息，包括标签名称、标题、描述、发布状态、附件列表等完整信息。\nGet detailed information of the specified release by ID, including tag name, title, description, release status, asset list, and other complete information.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "获取版本。Get release.",
+        "operationId": "GetReleaseByID",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/api.Release"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "description": "删除指定的版本发布记录。删除版本不会删除对应的 Git 标签，标签仍会保留在仓库中。如需同时删除标签，需单独调用删除标签接口。\nDelete the specified release. Note: Deleting a release does not delete the corresponding Git tag; the tag will remain in the repository. To delete the tag as well, call the delete tag endpoint separately.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:rw",
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "删除版本。Delete release.",
+        "operationId": "DeleteRelease",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "description": "更新指定版本的基本信息。支持修改版本标题、描述、草稿状态、预发布状态及是否为最新版本等字段。支持部分更新，仅传入需要修改的字段即可。\nUpdate basic information of the specified release. Supports modifying title, description, draft status, prerelease status, and latest release flag. Supports partial updates; only pass the fields that need to be changed.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:rw",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "更新版本。Update release.",
+        "operationId": "PatchRelease",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "发行版更新表单。Patch release form.",
+            "name": "patch_release_form",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/openapi.PatchReleaseForm"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/{release_id}/asset-upload-confirmation/{upload_token}/{asset_path}": {
+      "post": {
+        "description": "确认版本附件已上传完成。在文件通过预签名 URL 上传成功后，必须调用此接口完成上传确认，附件才会正式关联到版本中。\nConfirm that the release asset has been uploaded. After the file is uploaded via the pre-signed URL, you must call this endpoint to complete the upload confirmation. The asset will only be formally associated with the release after confirmation.\n`upload_token` 和 `asset_path` 参数从获取上传地址接口返回的 `verify_url` 中提取。\nThe `upload_token` and `asset_path` parameters are extracted from the `verify_url` returned by the upload URL endpoint.\n通过 `ttl` 参数设置附件保留天数（0 表示永久，最大 180 天）。\nUse the `ttl` parameter to set the number of days to retain the asset (0 for permanent, max 180 days).\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:rw",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "确认附件上传。Confirm asset upload.",
+        "operationId": "PostReleaseAssetUploadConfirmation",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "PostReleaseAssetUploadURL接口返回值verify_url字段提取的upload_token。",
+            "name": "upload_token",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "PostReleaseAssetUploadURL接口返回值verify_url字段提取的asset_path。",
+            "name": "asset_path",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "description": "附件保持的天数。0 表示永久，最大不能超过 180 天. Attachment retention days. 0 means permanent, max 180 days.",
+            "name": "ttl",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/{release_id}/asset-upload-url": {
+      "post": {
+        "description": "为指定版本生成附件上传的预签名 URL。返回上传地址（upload_url）、过期时间及上传确认地址（verify_url）。\nGenerate a pre-signed URL for uploading an asset to the specified release. Returns the upload URL (upload_url), expiration time, and upload confirmation URL (verify_url).\n上传流程为：先调用此接口获取上传地址，然后将文件 PUT 到上传地址，最后调用确认接口完成上传。\nUpload process: first call this endpoint to get the upload URL, then PUT the file to the upload URL, and finally call the confirmation endpoint to complete the upload.\n支持通过 `overwrite` 参数覆盖同名附件，通过 `ttl` 参数设置附件保留天数。\nSupports overwriting assets with the same name via the `overwrite` parameter, and setting asset retention days via the `ttl` parameter.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:rw",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/vnd.cnb.api+json"
+        ],
+        "tags": [
+          "Releases"
+        ],
+        "summary": "获取附件上传地址。Get asset upload URL.",
+        "operationId": "PostReleaseAssetUploadURL",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "发布制品上传URL表单。Release asset upload URL form.",
+            "name": "create_release_asset_upload_url_form",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/openapi.PostReleaseAssetUploadURLForm"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/openapi.ReleaseAssetUploadURL"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/{repo}/-/releases/{release_id}/assets/{asset_id}": {
+      "get": {
+        "description": "根据附件 ID 获取指定版本下单个附件的详细信息，包括文件名、大小、下载地址等。\nGet detailed information of a single asset by asset ID under the specified release, including file name, size, and download URL.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:r",
+        "tags": [
+          "Releases"
+        ],
+        "summary": "获取版本附件。Get release asset.",
+        "operationId": "GetReleaseAsset",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "附件唯一标识符。Attachment unique identifier.",
+            "name": "asset_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/api.ReleaseAsset"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "description": "删除指定版本下的单个附件。删除后该附件将无法恢复。操作成功后返回 204 无内容响应。\nDelete a single asset from the specified release. The asset cannot be recovered after deletion. Returns 204 No Content on success.\n访问令牌调用此接口需包含以下权限。Required permissions for access token. \nrepo-release:rw",
+        "tags": [
+          "Releases"
+        ],
+        "summary": "删除版本附件。Delete release asset.",
+        "operationId": "DeleteReleaseAsset",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "不带.git后缀的仓库名称。格式：`组织名称/仓库名称`。Repository name without .git suffix. Format: `org/repo`.",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "版本唯一标识符。Version unique identifier.",
+            "name": "release_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "附件唯一标识符。Attachment unique identifier.",
+            "name": "asset_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/die.WebError"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "api.Release": {
+      "type": "object",
+      "properties": {
+        "assets": {
+          "description": "附件列表。Attachment list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/api.ReleaseAsset"
+          }
+        },
+        "author": {
+          "description": "作者信息。Author information.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/api.UserInfo"
+            }
+          ]
+        },
+        "body": {
+          "description": "版本描述。Release description.",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "创建时间。Created at.",
+          "type": "string"
+        },
+        "draft": {
+          "description": "是否为草稿版本。Whether this is a draft release.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "版本唯一标识符。Release unique identifier.",
+          "type": "string"
+        },
+        "is_latest": {
+          "description": "是否为最新版本。Whether this is the latest version.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "版本标题。Release title.",
+          "type": "string"
+        },
+        "prerelease": {
+          "description": "是否为预发布版本。Whether this is a pre-release.",
+          "type": "boolean"
+        },
+        "published_at": {
+          "description": "版本发布时间。Release published at.",
+          "type": "string"
+        },
+        "tag_commitish": {
+          "description": "标签与提交标识符。Tag and commit identifier.",
+          "type": "string"
+        },
+        "tag_name": {
+          "description": "标签名称。Tag name.",
+          "type": "string"
+        },
+        "updated_at": {
+          "description": "更新时间。Updated at.",
+          "type": "string"
+        }
+      }
+    },
+    "api.ReleaseAsset": {
+      "type": "object",
+      "properties": {
+        "brower_download_url": {
+          "description": "拼写错误，即将删除，请使用 browser_download_url。Spelling error, about to be deleted. Please use browser_download_url.",
+          "type": "string"
+        },
+        "browser_download_url": {
+          "description": "浏览器下载URL（通过主域名，用于用户直接访问）。Browser download URL (via main domain, for direct user access).",
+          "type": "string"
+        },
+        "content_type": {
+          "description": "附件内容类型。Attachment content type.",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "创建时间。Created at.",
+          "type": "string"
+        },
+        "hash_algo": {
+          "description": "附件哈希算法。Attachment hash algorithm.",
+          "type": "string"
+        },
+        "hash_value": {
+          "description": "附件哈希值。Attachment hash.",
+          "type": "string"
+        },
+        "id": {
+          "description": "附件唯一标识符。Attachment unique identifier.",
+          "type": "string"
+        },
+        "name": {
+          "description": "附件名称。Attachment name.",
+          "type": "string"
+        },
+        "path": {
+          "description": "附件路径。Attachment path.",
+          "type": "string"
+        },
+        "size": {
+          "description": "附件大小（字节）。Attachment size (bytes).",
+          "type": "integer"
+        },
+        "updated_at": {
+          "description": "更新时间。Updated at.",
+          "type": "string"
+        },
+        "uploader": {
+          "description": "附件上传者信息。Attachment uploader information.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/api.UserInfo"
+            }
+          ]
+        },
+        "url": {
+          "description": "API下载URL（通过API域名，用于程序化下载）。API download URL (via API domain, for programmatic download).",
+          "type": "string"
+        }
+      }
+    },
+    "openapi.PatchReleaseForm": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "版本描述。Release description.",
+          "type": "string"
+        },
+        "draft": {
+          "description": "是否为草稿版本。Whether this is a draft release.",
+          "type": "boolean"
+        },
+        "make_latest": {
+          "description": "是否设置为最新版本。可选值：`true`,`false`,`legacy`",
+          "type": "string"
+        },
+        "name": {
+          "description": "版本标题。Release title.",
+          "type": "string"
+        },
+        "prerelease": {
+          "description": "是否为预发布版本。Whether this is a pre-release.",
+          "type": "boolean"
+        }
+      }
+    },
+    "openapi.PostReleaseAssetUploadURLForm": {
+      "type": "object",
+      "properties": {
+        "asset_name": {
+          "description": "附件名称。Attachment name.",
+          "type": "string"
+        },
+        "overwrite": {
+          "description": "是否覆盖同名附件。Whether to overwrite attachments with the same name.",
+          "type": "boolean"
+        },
+        "size": {
+          "description": "附件大小，单位为字节。Attachment size in bytes.",
+          "type": "integer"
+        },
+        "ttl": {
+          "description": "附件存在时间，单位为天。Attachment retention time in days.",
+          "type": "integer"
+        }
+      }
+    },
+    "openapi.PostReleaseForm": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "版本描述。Release description.",
+          "type": "string"
+        },
+        "draft": {
+          "description": "是否为草稿版本。Whether this is a draft release.",
+          "type": "boolean"
+        },
+        "make_latest": {
+          "description": "是否设置为最新版本。可选值：`true`,`false`,`legacy`",
+          "type": "string"
+        },
+        "name": {
+          "description": "版本标题。Release title.",
+          "type": "string"
+        },
+        "prerelease": {
+          "description": "是否为预发布版本。Whether this is a pre-release.",
+          "type": "boolean"
+        },
+        "tag_name": {
+          "description": "标签名称。Tag name.",
+          "type": "string"
+        },
+        "target_commitish": {
+          "description": "目标提交哈希或分支名称。Target commit hash or branch name.",
+          "type": "string"
+        }
+      }
+    },
+    "openapi.ReleaseAssetUploadURL": {
+      "type": "object",
+      "properties": {
+        "expires_in_sec": {
+          "description": "URL过期时间，单位为秒。URL expiration time in seconds.",
+          "type": "integer"
+        },
+        "upload_url": {
+          "description": "附件上传URL。Attachment upload URL.",
+          "type": "string"
+        },
+        "verify_url": {
+          "description": "附件上传确认验证URL。Attachment upload confirmation verification URL.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

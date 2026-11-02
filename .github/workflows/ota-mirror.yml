@@ -1,0 +1,52 @@
+name: Verify and mirror signed OTA release
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: ota-stable-mirror
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ota-mirror
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      OTA_PUBLIC_KEY_PEM: ${{ vars.OTA_PUBLIC_KEY_PEM }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r tools/ota/requirements.txt
+      - name: Download only explicitly configured profile release assets
+        env:
+          OTA_PROFILE: ${{ vars.OTA_PROFILE }}
+          OTA_ARTIFACT: ${{ vars.OTA_ARTIFACT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OTA_PUBLIC_KEY_PEM"
+          [[ "$OTA_PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,46}$ ]]
+          [[ "$OTA_ARTIFACT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,90}\.bin$ ]]
+          mkdir downloaded
+          printf '%s' "$OTA_PUBLIC_KEY_PEM" > public.pem
+          gh release download "$RELEASE_TAG" --repo "$GH_REPO" --pattern "manifest-$OTA_PROFILE.json" --pattern "$OTA_ARTIFACT" --dir downloaded
+      - name: Authenticate exact downloaded bytes and show mirror plan
+        run: python -m tools.ota.mirror --package downloaded --public-key public.pem --tag "$RELEASE_TAG"
+      - name: Publish verified bytes to CNB and advance stable manifest
+        env:
+          CI: 'true'
+          OTA_MIRROR_ENABLED: ${{ vars.OTA_MIRROR_ENABLED }}
+          CNB_REPO: ${{ vars.CNB_REPO }}
+          CNB_TARGET_COMMITISH: ${{ vars.CNB_TARGET_COMMITISH }}
+          CNB_STORAGE_HOSTS: ${{ vars.CNB_STORAGE_HOSTS }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: python -m tools.ota.mirror --package downloaded --public-key public.pem --tag "$RELEASE_TAG" --publish

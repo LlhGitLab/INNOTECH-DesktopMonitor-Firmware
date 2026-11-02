@@ -28,7 +28,7 @@ class CnbApiPathRejected(ValueError):
         super().__init__(stage+"/path_flags "+" ".join(k+"="+("true" if flags[k] else "false") for k in self.FLAGS))
 
 class CnbValidationFailure(ValueError):
-    REASONS=frozenset(("invalid_release_response","invalid_upload_response","missing_upload_urls","unexpected_confirmation_path","upload_url_expired"))
+    REASONS=frozenset(("invalid_release_response","invalid_upload_response","missing_upload_urls","unexpected_confirmation_path","confirmation_release_prefix","confirmation_tail","confirmation_query","upload_url_expired"))
     def __init__(self,reason):
         if reason not in self.REASONS:raise ValueError("invalid CNB validation diagnostic")
         super().__init__(reason)
@@ -208,13 +208,15 @@ class Client:
         self.check_url(upload,storage=True);self.check_url(confirm,auth=True)
         parsed=urllib.parse.urlsplit(confirm)
         expected=self.prefix+"/"+item["id"]+"/asset-upload-confirmation/"
-        tail=parsed.path[len(expected):] if parsed.path.startswith(expected) else ""
-        if not tail or len(tail.split("/"))<2 or parsed.query:raise CnbValidationFailure("unexpected_confirmation_path")
+        if not parsed.path.startswith(expected):raise CnbValidationFailure("confirmation_release_prefix")
+        tail=parsed.path[len(expected):]
+        if not tail or len(tail.split("/"))<2:raise CnbValidationFailure("confirmation_tail")
+        if parsed.query not in ("","ttl=0"):raise CnbValidationFailure("confirmation_query")
         started=time.monotonic()
         self.request("PUT",upload,data,storage=True)
         if time.monotonic()-started>=prepared["expires_in_sec"]:raise CnbValidationFailure("upload_url_expired")
         if before_confirm:before_confirm()
-        self.request("POST",confirm+"?ttl=0",b"{}",auth=True)
+        self.request("POST",confirm if parsed.query=="ttl=0" else confirm+"?ttl=0",b"{}",auth=True)
 
 def publish(directory,key,tag,client,authority):
     from .mirror import plan

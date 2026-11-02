@@ -11,6 +11,19 @@ from pathlib import Path
 from . import release
 from .configure import coordinate
 
+class CnbHttpFailure(ValueError):
+    """Diagnostic contains only a fixed operation stage and bounded HTTP status."""
+    STAGES=frozenset(("publicdownload","api_read","api_create_release","api_prepare_upload","storage_put","api_confirm"))
+    def __init__(self,stage,status):
+        if stage not in self.STAGES or type(status) is not int or not 100<=status<=599:raise ValueError("invalid CNB HTTP diagnostic")
+        super().__init__(stage+"/status"+str(status))
+
+class CnbValidationFailure(ValueError):
+    REASONS=frozenset(("invalid_release_response","invalid_upload_response","missing_upload_urls","unexpected_confirmation_path","upload_url_expired"))
+    def __init__(self,reason):
+        if reason not in self.REASONS:raise ValueError("invalid CNB validation diagnostic")
+        super().__init__(reason)
+
 class UnconfiguredStorageHost(ValueError):
     """Only a validated DNS hostname may reach the enrollment diagnostic."""
     def __init__(self,hostname):
@@ -60,8 +73,19 @@ class Client:
         elif origin!=self.public_origin and parsed.hostname not in self.storage_hosts:raise UnconfiguredStorageHost(parsed.hostname)
         return url
 
-    def http_failure(self,url,status):
-        return ValueError("CNB HTTP operation failed")
+    def http_failure(self,url,status,*,method="GET",auth=False,storage=False):
+        # Called only after the unchanged origin/path gate. Never expose a path,
+        # release ID, query, response body/header, or token through diagnostics.
+        path=urllib.parse.urlsplit(url).path
+        stage=None
+        if storage and method=="PUT":stage="storage_put"
+        elif auth:
+            if method=="GET":stage="api_read"
+            elif method=="POST" and path==self.prefix:stage="api_create_release"
+            elif method=="POST" and path.startswith(self.prefix+"/") and path.endswith("/asset-upload-url"):stage="api_prepare_upload"
+            elif method=="POST" and path.startswith(self.prefix+"/") and "/asset-upload-confirmation/" in path:stage="api_confirm"
+        elif method=="GET":stage="publicdownload"
+        return CnbHttpFailure(stage,status) if stage else ValueError("CNB HTTP operation failed")
 
     def request(self,method,url,data=None,*,auth=False,storage=False,limit=65536,missing=False,redirects=0,accept=None):
         deadline=time.monotonic()+90
@@ -83,7 +107,7 @@ class Client:
                     if not target:raise ValueError("missing redirect URL")
                     url=urllib.parse.urljoin(url,target)
                     continue
-                if not 200<=status<300:raise self.http_failure(url,status)
+                if not 200<=status<300:raise self.http_failure(url,status,method=method,auth=auth,storage=storage)
                 length=response.headers.get("Content-Length")
                 if length is not None and (not length.isdigit() or int(length)>limit):raise ValueError("oversized response")
                 output=bytearray()
@@ -107,7 +131,7 @@ class Client:
     def ensure(self,tag):
         item=self.by_tag(tag)
         if item is None:item=self.api("POST",self.prefix,dict(tag_name=tag,target_commitish=self.commitish,name=tag,draft=False,prerelease=False,make_latest="false"))
-        if not isinstance(item,dict) or item.get("tag_name")!=tag or item.get("draft") or item.get("prerelease") or not isinstance(item.get("id"),str):raise ValueError("invalid release response")
+        if not isinstance(item,dict) or item.get("tag_name")!=tag or item.get("draft") or item.get("prerelease") or not isinstance(item.get("id"),str):raise CnbValidationFailure("invalid_release_response")
         release.safe(item["id"],128)
         return item
 
@@ -117,17 +141,17 @@ class Client:
     def upload(self,item,name,data,overwrite=False,before_confirm=None):
         path=self.prefix+"/"+item["id"]+"/asset-upload-url"
         prepared=self.api("POST",path,dict(asset_name=name,size=len(data),overwrite=overwrite,ttl=0))
-        if not isinstance(prepared,dict) or type(prepared.get("expires_in_sec")) is not int or prepared["expires_in_sec"]<=0:raise ValueError("invalid upload response")
+        if not isinstance(prepared,dict) or type(prepared.get("expires_in_sec")) is not int or prepared["expires_in_sec"]<=0:raise CnbValidationFailure("invalid_upload_response")
         upload=prepared.get("upload_url");confirm=prepared.get("verify_url")
-        if not isinstance(upload,str) or not isinstance(confirm,str):raise ValueError("missing upload URLs")
+        if not isinstance(upload,str) or not isinstance(confirm,str):raise CnbValidationFailure("missing_upload_urls")
         self.check_url(upload,storage=True);self.check_url(confirm,auth=True)
         parsed=urllib.parse.urlsplit(confirm)
         expected=self.prefix+"/"+item["id"]+"/asset-upload-confirmation/"
         tail=parsed.path[len(expected):] if parsed.path.startswith(expected) else ""
-        if not tail or len(tail.split("/"))<2 or parsed.query:raise ValueError("unexpected confirmation path")
+        if not tail or len(tail.split("/"))<2 or parsed.query:raise CnbValidationFailure("unexpected_confirmation_path")
         started=time.monotonic()
         self.request("PUT",upload,data,storage=True)
-        if time.monotonic()-started>=prepared["expires_in_sec"]:raise ValueError("upload URL expired before confirmation")
+        if time.monotonic()-started>=prepared["expires_in_sec"]:raise CnbValidationFailure("upload_url_expired")
         if before_confirm:before_confirm()
         self.request("POST",confirm+"?ttl=0",b"{}",auth=True)
 

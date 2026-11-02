@@ -31,7 +31,7 @@ class Authority(Client):
         if auth and (not self.token or url!=self.latest_url):raise ValueError("GitHub auth endpoint mismatch")
         return url
 
-    def http_failure(self,url,status):
+    def http_failure(self,url,status,**context):
         return GitHubHttpFailure("github_latest" if url==self.latest_url else "github_download",status)
 
     def request(self,method,url,data=None,**kwargs):

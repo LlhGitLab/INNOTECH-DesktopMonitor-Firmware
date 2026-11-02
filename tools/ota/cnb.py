@@ -92,6 +92,28 @@ class Client:
             flags["other_escape"]|=not(slash or dot or unreserved or base64 or nested)
         return CnbApiPathRejected(stage,flags)
 
+    def confirmation_asset_path_supported(self,path):
+        """Exception solely for encoded forward slashes in final asset_path.
+
+        Validate one decoded view, but never normalize or replace the wire URL.
+        """
+        prefix=self.prefix+"/"
+        if not path.startswith(prefix):return False
+        parts=path[len(prefix):].split("/",3)
+        if len(parts)!=4 or parts[1]!="asset-upload-confirmation":return False
+        def component(part):
+            return bool(re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*",part)) and part not in (".","..")
+        if not component(parts[0]) or not component(parts[2]):return False
+        asset=parts[3]
+        decoded=re.sub(r"%2[fF]","/",asset)
+        # All other escapes (including encoded backslash/dot/percent/query)
+        # remain rejected. At most one encoded leading object-path separator.
+        if "%" in decoded:return False
+        if decoded.startswith("/"):
+            if not asset.lower().startswith("%2f") or decoded.startswith("//"):return False
+            decoded=decoded[1:]
+        return all(component(part) for part in decoded.split("/"))
+
     def check_url(self,url,*,auth=False,storage=False):
         if not isinstance(url,str) or any(ord(c)<33 or ord(c)>126 for c in url) or "\\" in url or "#" in url:raise ValueError("unsafe raw URL")
         parsed=urllib.parse.urlsplit(url)
@@ -99,10 +121,11 @@ class Client:
         if not self.test_loopback and parsed.port not in (None,443):raise ValueError("unexpected HTTPS port")
         origin=parsed.scheme+"://"+parsed.netloc
         if auth:
-            # Reject encodings altogether: no intermediate proxy may decode an
-            # apparently confined URL into dot segments or path separators.
+            # Other API paths retain the original canonical segment rule.
+            # Only documented final confirmation asset_path allows %2F.
             segments=parsed.path.split("/")[1:]
-            if "%" in parsed.path or not segments or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*",part) or part in (".","..") for part in segments):raise self.api_path_rejected(parsed.path,segments)
+            noncanonical=("%" in parsed.path or not segments or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*",part) or part in (".","..") for part in segments))
+            if noncanonical and not self.confirmation_asset_path_supported(parsed.path):raise self.api_path_rejected(parsed.path,segments)
             if "?" in url and not parsed.query:raise ValueError("empty API query")
             if parsed.query and not (parsed.query=="ttl=0" and "/asset-upload-confirmation/" in parsed.path):raise ValueError("unexpected API query")
             if origin!=self.api_origin or not parsed.path.startswith(self.prefix+"/") and parsed.path!=self.prefix:raise ValueError("API origin/path mismatch")

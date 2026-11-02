@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from . import release
-from .cnb import UnconfiguredStorageHost,CnbHttpFailure,CnbValidationFailure
+from .cnb import UnconfiguredStorageHost,CnbHttpFailure,CnbValidationFailure,CnbApiPathRejected
 from .github import GitHubHttpFailure
 
 def plan(directory,key,tag):
@@ -79,6 +79,7 @@ def main():
             print("Verified CNB version files and stable manifest")
             return
         print(json.dumps(dict(mode="dry-run",actions=actions),indent=2))
+    except CnbApiPathRejected as exc: parser.exit(1,"CNB API path rejected: "+str(exc)+"\n")
     except CnbHttpFailure as exc: parser.exit(1,"CNB mirror failed: "+str(exc)+"\n")
     except CnbValidationFailure as exc: parser.exit(1,"CNB mirror rejected: "+str(exc)+"\n")
     except GitHubHttpFailure as exc: parser.exit(1,"GitHub authority failed: "+str(exc)+"\n")

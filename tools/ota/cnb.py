@@ -18,6 +18,15 @@ class CnbHttpFailure(ValueError):
         if stage not in self.STAGES or type(status) is not int or not 100<=status<=599:raise ValueError("invalid CNB HTTP diagnostic")
         super().__init__(stage+"/status"+str(status))
 
+class CnbApiPathRejected(ValueError):
+    """Only fixed operation and boolean character classes; never path data."""
+    STAGES=frozenset(("api_confirm","api_prepare_upload","api_read","api_create_release"))
+    FLAGS=("percent","empty","dotsegment","invalid_start","base64_padding_equal","base64_plus","tilde","other_reserved","encoded_slash_or_backslash","encoded_dot","encoded_unreserved","encoded_base64_plus_or_equal","invalid_escape","nested_percent","other_escape")
+    def __init__(self,stage,flags):
+        if stage not in self.STAGES or type(flags) is not dict or set(flags)!=set(self.FLAGS) or any(type(flags[k]) is not bool for k in self.FLAGS):raise ValueError("invalid CNB API path diagnostic")
+        self.stage=stage;self.flags={k:flags[k] for k in self.FLAGS}
+        super().__init__(stage+"/path_flags "+" ".join(k+"="+("true" if flags[k] else "false") for k in self.FLAGS))
+
 class CnbValidationFailure(ValueError):
     REASONS=frozenset(("invalid_release_response","invalid_upload_response","missing_upload_urls","unexpected_confirmation_path","upload_url_expired"))
     def __init__(self,reason):
@@ -54,6 +63,35 @@ class Client:
         self.opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
         self.prefix="/"+repo+"/-/releases"
 
+    def api_path_rejected(self,path,segments):
+        # Diagnostic only: the existing rejection predicate remains unchanged.
+        stage=("api_confirm" if "/asset-upload-confirmation/" in path else
+               "api_prepare_upload" if path.endswith("/asset-upload-url") else
+               "api_create_release" if path==self.prefix else "api_read")
+        flags={"percent":"%" in path,"empty":not segments or any(part=="" for part in segments),
+               "dotsegment":any(part in (".","..") for part in segments),
+               "invalid_start":any(part and not re.fullmatch(r"[A-Za-z0-9_-]",part[0]) for part in segments),
+               "base64_padding_equal":"=" in path,"base64_plus":"+" in path,
+               "tilde":"~" in path,"other_reserved":bool(re.search(r"[^A-Za-z0-9._/=%+~-]",path))}
+        escape_flags=("encoded_slash_or_backslash","encoded_dot","encoded_unreserved","encoded_base64_plus_or_equal","invalid_escape","nested_percent","other_escape")
+        flags.update({name:False for name in escape_flags})
+        for match in re.finditer("%",path):
+            encoded=path[match.start()+1:match.start()+3]
+            if not re.fullmatch(r"[0-9a-fA-F]{2}",encoded):
+                flags["invalid_escape"]=True
+                continue
+            value=int(encoded,16)
+            slash=value in (47,92);dot=value==46
+            unreserved=65<=value<=90 or 97<=value<=122 or 48<=value<=57 or value in (45,46,95,126)
+            base64=value in (43,61);nested=value==37
+            flags["encoded_slash_or_backslash"]|=slash
+            flags["encoded_dot"]|=dot
+            flags["encoded_unreserved"]|=unreserved
+            flags["encoded_base64_plus_or_equal"]|=base64
+            flags["nested_percent"]|=nested
+            flags["other_escape"]|=not(slash or dot or unreserved or base64 or nested)
+        return CnbApiPathRejected(stage,flags)
+
     def check_url(self,url,*,auth=False,storage=False):
         if not isinstance(url,str) or any(ord(c)<33 or ord(c)>126 for c in url) or "\\" in url or "#" in url:raise ValueError("unsafe raw URL")
         parsed=urllib.parse.urlsplit(url)
@@ -64,7 +102,7 @@ class Client:
             # Reject encodings altogether: no intermediate proxy may decode an
             # apparently confined URL into dot segments or path separators.
             segments=parsed.path.split("/")[1:]
-            if "%" in parsed.path or not segments or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*",part) or part in (".","..") for part in segments):raise ValueError("noncanonical API path")
+            if "%" in parsed.path or not segments or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*",part) or part in (".","..") for part in segments):raise self.api_path_rejected(parsed.path,segments)
             if "?" in url and not parsed.query:raise ValueError("empty API query")
             if parsed.query and not (parsed.query=="ttl=0" and "/asset-upload-confirmation/" in parsed.path):raise ValueError("unexpected API query")
             if origin!=self.api_origin or not parsed.path.startswith(self.prefix+"/") and parsed.path!=self.prefix:raise ValueError("API origin/path mismatch")

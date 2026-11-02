@@ -29,6 +29,38 @@ def plan(directory,key,tag):
     if obj["tag"]!=tag or manifest.name!="manifest-"+obj["profile"]+".json": raise ValueError("release tag/profile mismatch")
     return [dict(phase="immutable",tag=tag,artifact=obj["artifact"],sha256=obj["sha256"]),dict(phase="verify-download",size=obj["size"],sha256=obj["sha256"]),dict(phase="stable-manifest",tag="ota-stable",artifact=manifest.name)]
 
+def generic_failure_diagnostic(error):
+    """Only a trusted deepest module's static basename/line and fixed type.
+
+    Never format exception values, traceback paths, locals, or caller input.
+    Unrecognized types or frames retain the existing generic diagnostic.
+    """
+    fallback="Mirror input rejected.\n"
+    types={ValueError:"ValueError",OSError:"OSError",KeyError:"KeyError",TypeError:"TypeError"}
+    kind=types.get(type(error))
+    if kind is None:return fallback
+    trace=error.__traceback__
+    if trace is None:return fallback
+    while trace.tb_next is not None:trace=trace.tb_next
+    frame=trace.tb_frame
+    owning=Path(__file__).resolve().parent
+    allowed=("mirror.py","cnb.py","github.py","configure.py","release.py")
+    try:
+        filename=Path(frame.f_code.co_filename).resolve()
+        modulefile=frame.f_globals.get("__file__")
+        if type(modulefile) is not str:return fallback
+        modulefile=Path(modulefile).resolve()
+        for basename in allowed:
+            expected=owning/basename
+            name=frame.f_globals.get("__name__")
+            module_owned=(name=="tools.ota."+basename[:-3] or
+                          (basename=="mirror.py" and name=="__main__" and frame.f_globals is globals()))
+            if filename==expected and modulefile==expected and module_owned and type(trace.tb_lineno) is int and trace.tb_lineno>0:
+                return "Mirror input rejected: "+basename+":"+str(trace.tb_lineno)+"/"+kind+".\n"
+    except (OSError,ValueError,TypeError):
+        pass
+    return fallback
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package",type=Path,required=True)
@@ -51,6 +83,6 @@ def main():
     except CnbValidationFailure as exc: parser.exit(1,"CNB mirror rejected: "+str(exc)+"\n")
     except GitHubHttpFailure as exc: parser.exit(1,"GitHub authority failed: "+str(exc)+"\n")
     except UnconfiguredStorageHost as exc: parser.exit(2,"CNB_STORAGE_HOSTS requires: "+exc.hostname+"\n")
-    except (ValueError,OSError,KeyError,TypeError): parser.exit(1,"Mirror input rejected.\n")
+    except (ValueError,OSError,KeyError,TypeError) as exc: parser.exit(1,generic_failure_diagnostic(exc))
 
 if __name__=="__main__": main()

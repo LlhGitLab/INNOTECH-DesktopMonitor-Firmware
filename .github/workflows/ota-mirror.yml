@@ -1,5 +1,11 @@
 name: Verify and mirror signed OTA release
 on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing stable release tag to verify and mirror
+        required: true
+        type: string
   release:
     types: [published]
 permissions:
@@ -9,12 +15,12 @@ concurrency:
   cancel-in-progress: false
 jobs:
   verify:
-    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && !github.event.release.draft) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: ota-mirror
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
       OTA_PUBLIC_KEY_PEM: ${{ vars.OTA_PUBLIC_KEY_PEM }}

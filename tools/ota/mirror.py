@@ -8,6 +8,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from . import release
 from .cnb import UnconfiguredStorageHost
+from .github import GitHubHttpFailure
 
 def plan(directory,key,tag):
     directory=Path(directory)
@@ -46,6 +47,7 @@ def main():
             print("Verified CNB version files and stable manifest")
             return
         print(json.dumps(dict(mode="dry-run",actions=actions),indent=2))
+    except GitHubHttpFailure as exc: parser.exit(1,"GitHub authority failed: "+str(exc)+"\n")
     except UnconfiguredStorageHost as exc: parser.exit(2,"CNB_STORAGE_HOSTS requires: "+exc.hostname+"\n")
     except (ValueError,OSError,KeyError,TypeError): parser.exit(1,"Mirror input rejected.\n")
 

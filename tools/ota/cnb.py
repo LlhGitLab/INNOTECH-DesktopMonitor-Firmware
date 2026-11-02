@@ -60,6 +60,9 @@ class Client:
         elif origin!=self.public_origin and parsed.hostname not in self.storage_hosts:raise UnconfiguredStorageHost(parsed.hostname)
         return url
 
+    def http_failure(self,url,status):
+        return ValueError("CNB HTTP operation failed")
+
     def request(self,method,url,data=None,*,auth=False,storage=False,limit=65536,missing=False,redirects=0,accept=None):
         deadline=time.monotonic()+90
         for hop in range(redirects+1):
@@ -80,7 +83,7 @@ class Client:
                     if not target:raise ValueError("missing redirect URL")
                     url=urllib.parse.urljoin(url,target)
                     continue
-                if not 200<=status<300:raise ValueError("CNB HTTP operation failed")
+                if not 200<=status<300:raise self.http_failure(url,status)
                 length=response.headers.get("Content-Length")
                 if length is not None and (not length.isdigit() or int(length)>limit):raise ValueError("oversized response")
                 output=bytearray()

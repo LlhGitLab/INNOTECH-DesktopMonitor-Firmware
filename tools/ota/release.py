@@ -11,6 +11,9 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 FIELDS = {"schema","channel","sequence","version","profile","tag","artifact","size","sha256","image_signature"}
 MAX_IMAGE = 1044464
 MARKER = b"INNOTECH_OTA_META_V1|"
+BRAND_PREFIX = b"INNOTECH_BRAND_V1|"
+BRAND_RECORD = b"INNOTECH_BRAND_V1|name=INNOTECH|short=INNO|ssid=3DPrint-Monitor-INNO|policy=software-basic|"
+BRAND_SEQUENCE = 27
 
 def compact(obj):
     return json.dumps(obj,ensure_ascii=True,separators=(",",":")).encode("ascii")
@@ -48,6 +51,8 @@ def key_ok(key,private=False):
 
 def check_image(image,fields,max_size=MAX_IMAGE):
     if not image or len(image)>max_size or image[0]!=0xe9: raise ValueError("invalid or oversized application BIN")
+    if fields["sequence"] >= BRAND_SEQUENCE and (image.count(BRAND_PREFIX) != 1 or image.count(BRAND_RECORD) != 1):
+        raise ValueError("missing or noncanonical brand record")
     expected=("INNOTECH_OTA_META_V1|seq=%d|version=%s|profile=%s|"%(fields["sequence"],fields["version"],fields["profile"])).encode("ascii")
     if image.count(MARKER)!=1 or expected not in image: raise ValueError("embedded build metadata mismatch")
 

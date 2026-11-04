@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import re
+import struct
 from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -14,6 +15,59 @@ MARKER = b"INNOTECH_OTA_META_V1|"
 BRAND_PREFIX = b"INNOTECH_BRAND_V1|"
 BRAND_RECORD = b"INNOTECH_BRAND_V1|name=INNOTECH|short=INNO|ssid=3DPrint-Monitor-INNO|policy=software-basic|"
 BRAND_SEQUENCE = 27
+SAFE1_PROFILE = "esp8266-st7789-154-safe1"
+SAFE1_PREFIX_SHA256 = "75892b1457444b0aed6dad12dffcbce8c8cdf576b461e7d7c1cb1c9a11ece121"
+
+def _crc8266(data):
+    """Core3.1.2 elf2bin MSB-first CRC, with the caller zeroing SDK fields."""
+    table=[]
+    for byte in range(256):
+        crc=byte<<24
+        for _ in range(8):
+            crc=((crc<<1)^(0x04c11db7 if crc&0x80000000 else 0))&0xffffffff
+        table.append(crc)
+    crc=0xffffffff
+    for byte in data:crc=((crc<<8)&0xffffffff)^table[(crc>>24)^byte]
+    return crc
+
+def _check_safe1_image(image):
+    """Validate this existing public Core3.1.2 safe1 layout without any SDK/ELF."""
+    if not 0x1018<=len(image)<=MAX_IMAGE:raise ValueError("invalid safe1 image extent")
+    if hashlib.sha256(image[:4096]).hexdigest()!=SAFE1_PREFIX_SHA256:
+        raise ValueError("safe1 loader prefix mismatch")
+    if b"SBTEST" in image:raise ValueError("private fixture hook in public safe1 image")
+    if image[4096:4100]!=b"\xe9\x05\x02\x40":raise ValueError("invalid safe1 application header")
+    entry=struct.unpack_from('<I',image,4100)[0]
+    # elf2bin serializes .irom0.text,.text,.text1,.data,.rodata in this order.
+    ranges=((0x40201010,0x40300000),(0x40100000,0x4010c000),(0x40100000,0x4010c000),
+            (0x3ffe8000,0x3fffc000),(0x3ffe8000,0x3fffc000))
+    segments=[];pos=4104
+    for index,(low,high) in enumerate(ranges):
+        if pos+8>len(image):raise ValueError("truncated safe1 segment header")
+        address,size=struct.unpack_from('<II',image,pos);pos+=8
+        if (not size or size>len(image)-pos or address&3 or
+                not low<=address<high or size>high-address):
+            raise ValueError("invalid safe1 segment extent")
+        if index==0 and (address!=0x40201010 or size<8):
+            raise ValueError("invalid safe1 IROM CRC area")
+        if any(address<other+length and other<address+size for other,length,_ in segments):
+            raise ValueError("overlapping safe1 segments")
+        segments.append((address,size,pos));pos+=size
+    if entry&3 or not any(a<=entry<a+n for a,n,_ in segments[1:3]):
+        raise ValueError("safe1 entry outside application IRAM")
+    # write_bin pads with zeroes then puts the XOR at the last byte of16B.
+    end=(pos+16)&~15
+    if end!=len(image) or any(image[pos:end-1]):raise ValueError("invalid safe1 padding or trailing bytes")
+    declared,stored_crc=struct.unpack_from('<II',image,0x1010)
+    if declared!=len(image):raise ValueError("safe1 SDK image length mismatch")
+    raw=bytearray(image);raw[0x1010:0x1018]=bytes(8)
+    checksum=0xef
+    # Linker LONG(0),LONG(0) precede IROM. add_crc patches those8 bytes after
+    # calculating section XOR and deliberately does not recalculate the XOR.
+    for _,size,start in segments:
+        for byte in memoryview(raw)[start:start+size]:checksum^=byte
+    if image[end-1]!=checksum:raise ValueError("safe1 application checksum mismatch")
+    if _crc8266(raw)!=stored_crc:raise ValueError("safe1 SDK image CRC mismatch")
 
 def compact(obj):
     return json.dumps(obj,ensure_ascii=True,separators=(",",":")).encode("ascii")
@@ -55,6 +109,7 @@ def check_image(image,fields,max_size=MAX_IMAGE):
         raise ValueError("missing or noncanonical brand record")
     expected=("INNOTECH_OTA_META_V1|seq=%d|version=%s|profile=%s|"%(fields["sequence"],fields["version"],fields["profile"])).encode("ascii")
     if image.count(MARKER)!=1 or expected not in image: raise ValueError("embedded build metadata mismatch")
+    if fields["profile"]==SAFE1_PROFILE:_check_safe1_image(image)
 
 def sign(image,fields,key,max_size=MAX_IMAGE):
     key_ok(key,True)

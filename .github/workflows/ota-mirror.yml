@@ -23,7 +23,7 @@ jobs:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
-      OTA_PUBLIC_KEY_PEM: ${{ vars.OTA_PUBLIC_KEY_PEM }}
+      OTA_PUBLIC_KEY: keys/ota-sec2-public.pem
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,19 +34,18 @@ jobs:
       - run: python -m pip install -r tools/ota/requirements.txt
       - name: Download only explicitly configured profile release assets
         env:
-          OTA_PROFILE: ${{ vars.OTA_PROFILE }}
-          OTA_ARTIFACT: ${{ vars.OTA_ARTIFACT }}
+          OTA_PROFILE: esp32c3-st7789-240-sec2
+          OTA_ARTIFACT: innotech-esp32c3-st7789-240-sec2.enc
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$OTA_PUBLIC_KEY_PEM"
-          [[ "$OTA_PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,46}$ ]]
-          [[ "$OTA_ARTIFACT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,90}\.bin$ ]]
+          test -s "$OTA_PUBLIC_KEY"
+          [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,46}$ ]]
           mkdir downloaded
-          printf '%s' "$OTA_PUBLIC_KEY_PEM" > public.pem
-          gh release download "$RELEASE_TAG" --repo "$GH_REPO" --pattern "manifest-$OTA_PROFILE.json" --pattern "$OTA_ARTIFACT" --dir downloaded
+          gh release download "$RELEASE_TAG" --repo "$GH_REPO" --dir downloaded \
+            --pattern "manifest-$OTA_PROFILE.json" --pattern "$OTA_ARTIFACT" --pattern 'key-*.bin'
       - name: Authenticate exact downloaded bytes and show mirror plan
-        run: python -m tools.ota.mirror --package downloaded --public-key public.pem --tag "$RELEASE_TAG"
+        run: python -m tools.ota.mirror --package downloaded --public-key "$OTA_PUBLIC_KEY" --tag "$RELEASE_TAG"
       - name: Publish verified bytes to CNB and advance stable manifest
         env:
           CI: 'true'
@@ -55,4 +54,4 @@ jobs:
           CNB_TARGET_COMMITISH: ${{ vars.CNB_TARGET_COMMITISH }}
           CNB_STORAGE_HOSTS: ${{ vars.CNB_STORAGE_HOSTS }}
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
-        run: python -m tools.ota.mirror --package downloaded --public-key public.pem --tag "$RELEASE_TAG" --publish
+        run: python -m tools.ota.mirror --package downloaded --public-key "$OTA_PUBLIC_KEY" --tag "$RELEASE_TAG" --publish

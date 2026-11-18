@@ -18,6 +18,27 @@ BRAND_SEQUENCE = 27
 SAFE1_PROFILE = "esp8266-st7789-154-safe1"
 SAFE1_PREFIX_SHA256 = "75892b1457444b0aed6dad12dffcbce8c8cdf576b461e7d7c1cb1c9a11ece121"
 
+PROTECTED_PROFILE = 'esp32c3-st7789-240-sec2'
+PROTECTED_ARTIFACT = 'innotech-' + PROTECTED_PROFILE + '.enc'
+PROTECTED_HEADER_BYTES = 16
+PROTECTED_RECORD_BYTES = 1024
+PROTECTED_SLOT_BYTES = 0x1b0000
+GCM_TAG_BYTES = 16
+
+def protected_wire_size(plain_size):
+    records = (plain_size + PROTECTED_RECORD_BYTES - 1) // PROTECTED_RECORD_BYTES
+    return PROTECTED_HEADER_BYTES + plain_size + GCM_TAG_BYTES * records
+
+
+def protected_plain_size(image):
+    APP_SLOT_SIZE = PROTECTED_SLOT_BYTES
+    if len(image) < PROTECTED_HEADER_BYTES or image[:4] != b'IOE1':
+        raise ValueError('invalid encrypted OTA header')
+    plain_size = struct.unpack_from('<I', image, 4)[0]
+    if not 0 < plain_size <= APP_SLOT_SIZE or len(image) != protected_wire_size(plain_size):
+        raise ValueError('invalid encrypted OTA length')
+    return plain_size
+
 def _crc8266(data):
     """Core3.1.2 elf2bin MSB-first CRC, with the caller zeroing SDK fields."""
     table=[]
@@ -95,7 +116,10 @@ def validate(fields):
         if type(fields[name]) is not int or not 0<fields[name]<=0xffffffff: raise ValueError("invalid uint32")
     ascii_version(fields["version"])
     for name,limit in (("profile",47),("tag",47),("artifact",95)): safe(fields[name],limit)
-    if not fields["artifact"].endswith(".bin"): raise ValueError("program BIN required")
+    if fields['profile'] == PROTECTED_PROFILE:
+        if fields['artifact'] != PROTECTED_ARTIFACT:
+            raise ValueError('encrypted sec2 artifact required')
+    elif not fields["artifact"].endswith(".bin"): raise ValueError("program BIN required")
     for name,length in (("sha256",64),("image_signature",512)):
         if not isinstance(fields[name],str) or not re.fullmatch("[0-9a-f]{"+str(length)+"}",fields[name]): raise ValueError("invalid hash/signature")
 
@@ -103,7 +127,18 @@ def key_ok(key,private=False):
     expected = rsa.RSAPrivateKey if private else rsa.RSAPublicKey
     if not isinstance(key,expected) or key.key_size!=2048 or (key.public_key() if private else key).public_numbers().e!=65537: raise ValueError("RSA2048 exponent65537 required")
 
+def image_limit(fields,requested):
+    if fields['profile'] != PROTECTED_PROFILE:
+        return requested
+    limit = protected_wire_size(PROTECTED_SLOT_BYTES)
+    return limit if requested == MAX_IMAGE else min(requested,limit)
+
 def check_image(image,fields,max_size=MAX_IMAGE):
+    if fields['profile'] == PROTECTED_PROFILE:
+        if len(image) > image_limit(fields,max_size):
+            raise ValueError('oversized encrypted OTA')
+        protected_plain_size(image)
+        return
     if not image or len(image)>max_size or image[0]!=0xe9: raise ValueError("invalid or oversized application BIN")
     if fields["sequence"] >= BRAND_SEQUENCE and (image.count(BRAND_PREFIX) != 1 or image.count(BRAND_RECORD) != 1):
         raise ValueError("missing or noncanonical brand record")

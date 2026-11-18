@@ -222,7 +222,14 @@ def publish(directory,key,tag,client,authority):
     from .mirror import plan
     actions=plan(directory,key,tag)
     directory=Path(directory);name=actions[0]["artifact"];manifest=actions[2]["artifact"]
-    image=(directory/name).read_bytes();envelope=(directory/manifest).read_bytes();candidate=release.authenticate(envelope,key)
+    image=(directory/name).read_bytes();envelope=(directory/manifest).read_bytes();candidate=release.verify(envelope,image,key)
+    version_files=[(name,image,release.image_limit(candidate,release.MAX_IMAGE)),(manifest,envelope,4096)]
+    if candidate['profile']==release.PROTECTED_PROFILE:
+        from .protected_verify import read_release, wrapper_filename, WRAPPER_BYTES
+        checked,wire,wrappers=read_release(directory,key)
+        if checked!=envelope or wire!=image or sorted(wrapper_filename(mac) for mac in wrappers)!=actions[0]['wrappers']:
+            raise ValueError('protected OTA package changed')
+        version_files.extend((wrapper_filename(mac),data,WRAPPER_BYTES) for mac,data in sorted(wrappers.items()))
     if tag=="ota-stable":raise ValueError("reserved stable tag")
     github_identity=authority(tag,manifest,envelope,key)
     stable=client.download("ota-stable",manifest,4096,missing=True)
@@ -231,7 +238,7 @@ def publish(directory,key,tag,client,authority):
         if previous["profile"]!=candidate["profile"] or previous["sequence"]>candidate["sequence"]:raise ValueError("stable downgrade/profile rejected")
         if previous["sequence"]==candidate["sequence"] and stable!=envelope:raise ValueError("sequence already used by different release")
     immutable=client.ensure(tag)
-    for filename,data,limit in ((name,image,release.MAX_IMAGE),(manifest,envelope,4096)):
+    for filename,data,limit in version_files:
         existing=client.download(tag,filename,limit,missing=True)
         if existing is not None and existing!=data:raise ValueError("immutable version bytes differ")
         if existing is None:client.upload(immutable,filename,data,False)

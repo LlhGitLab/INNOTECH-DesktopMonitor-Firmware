@@ -39,7 +39,7 @@ class Authority(Client):
         return super().request(method,url,data,**kwargs)
 
     def latest(self):
-        raw=self.request("GET",self.latest_url,auth=bool(self.token),limit=65536,accept="application/vnd.github+json")
+        raw=self.request("GET",self.latest_url,auth=bool(self.token),limit=4*1024*1024,accept="application/vnd.github+json")
         item=release.strict_json(raw)
         if not isinstance(item,dict) or type(item.get("id")) is not int or not isinstance(item.get("tag_name"),str) or item.get("draft") or item.get("prerelease"):raise ValueError("invalid GitHub latest release")
         release.safe(item["tag_name"],47)

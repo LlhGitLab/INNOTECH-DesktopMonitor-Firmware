@@ -18,16 +18,20 @@ def plan(directory,key,tag):
     manifest=manifests[0]
     if manifest.is_symlink() or manifest.stat().st_size>4096: raise ValueError("invalid manifest")
     envelope=manifest.read_bytes()
-    # Untrusted fields select only a safe basename; full authentication follows.
-    env=release.strict_json(envelope)
-    obj=release.strict_json(env["payload"])
-    release.validate(obj)
-    artifact=directory/obj["artifact"]
-    if set(p.name for p in directory.iterdir())!={manifest.name,obj["artifact"]} or any(p.is_symlink() or not p.is_file() for p in directory.iterdir()): raise ValueError("package contains non-allowlisted files")
-    if artifact.stat().st_size>release.MAX_IMAGE: raise ValueError("oversized image")
-    release.verify(envelope,artifact.read_bytes(),key)
+    obj=release.authenticate(envelope,key)
+    immutable=dict(phase="immutable",tag=tag,artifact=obj["artifact"],sha256=obj["sha256"])
+    if obj['profile']==release.PROTECTED_PROFILE:
+        from .protected_verify import read_release, wrapper_filename
+        checked,_,wrappers=read_release(directory,key)
+        if checked!=envelope:raise ValueError('protected OTA manifest changed')
+        immutable['wrappers']=sorted(wrapper_filename(mac) for mac in wrappers)
+    else:
+        artifact=directory/obj["artifact"]
+        if set(p.name for p in directory.iterdir())!={manifest.name,obj["artifact"]} or any(p.is_symlink() or not p.is_file() for p in directory.iterdir()): raise ValueError("package contains non-allowlisted files")
+        if artifact.stat().st_size>release.image_limit(obj,release.MAX_IMAGE): raise ValueError("oversized image")
+        release.verify(envelope,artifact.read_bytes(),key)
     if obj["tag"]!=tag or manifest.name!="manifest-"+obj["profile"]+".json": raise ValueError("release tag/profile mismatch")
-    return [dict(phase="immutable",tag=tag,artifact=obj["artifact"],sha256=obj["sha256"]),dict(phase="verify-download",size=obj["size"],sha256=obj["sha256"]),dict(phase="stable-manifest",tag="ota-stable",artifact=manifest.name)]
+    return [immutable,dict(phase="verify-download",size=obj["size"],sha256=obj["sha256"]),dict(phase="stable-manifest",tag="ota-stable",artifact=manifest.name)]
 
 def generic_failure_diagnostic(error):
     """Only a trusted deepest module's static basename/line and fixed type.

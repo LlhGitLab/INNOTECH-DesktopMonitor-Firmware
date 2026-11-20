@@ -1,6 +1,8 @@
 # Signed OTA release tooling
 
-Offline packaging, public build configuration and the real CNB mirror adapter are implemented. Repositories, maintainer signing key and CI configuration are not provisioned. No release or device update has been performed. Device download policy is GitHub first in every region and one CNB fallback.
+The official ESP32-C3 sec2 channel uses GitHub Latest and the CNB `ota-stable` manifest. Devices try GitHub first and fall back to CNB. The sec2 workflow verifies signed, encrypted releases with `keys/ota-sec2-public.pem`. Legacy signing and mirror setup information follows.
+
+For grouped releases, each `keygroup-xx.bin` contains records sorted by device MAC. Each record holds a six-byte MAC followed by its 320-byte signed key envelope. XOR of the six MAC bytes selects the two-digit lowercase group number. The mirror verifies every device record and the complete release inventory. Publish the versioned assets before advancing the stable manifest.
 
 ## Local signing and build configuration
 

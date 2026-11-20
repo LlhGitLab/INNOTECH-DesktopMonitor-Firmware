@@ -17,7 +17,7 @@ jobs:
   verify:
     if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && !github.event.release.draft) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 120
     environment: ota-mirror
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
@@ -43,7 +43,7 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,46}$ ]]
           mkdir downloaded
           gh release download "$RELEASE_TAG" --repo "$GH_REPO" --dir downloaded \
-            --pattern "manifest-$OTA_PROFILE.json" --pattern "$OTA_ARTIFACT" --pattern 'key-*.bin'
+            --pattern "manifest-$OTA_PROFILE.json" --pattern "$OTA_ARTIFACT" --pattern 'key-*.bin' --pattern 'keygroup-*.bin'
       - name: Authenticate exact downloaded bytes and show mirror plan
         run: python -m tools.ota.mirror --package downloaded --public-key "$OTA_PUBLIC_KEY" --tag "$RELEASE_TAG"
       - name: Publish verified bytes to CNB and advance stable manifest

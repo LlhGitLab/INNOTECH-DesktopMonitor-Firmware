@@ -2,6 +2,8 @@
 from pathlib import Path
 import re
 import struct
+from functools import reduce
+from operator import xor
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -10,7 +12,10 @@ from . import release
 PROFILE = release.PROTECTED_PROFILE
 MANIFEST = 'manifest-' + PROFILE + '.json'
 WRAPPER_BYTES = 320
-MAX_RECIPIENTS = 998
+LEGACY_MAX_RECIPIENTS = 998
+MAX_RECIPIENTS = 10000
+GROUP_RECORD_BYTES = 6 + WRAPPER_BYTES
+GROUP_NAME = re.compile(r'keygroup-([0-9a-f]{2})\.bin')
 WRAPPER_NAME = re.compile(r'key-([0-9a-f]{12})\.bin')
 _WRAP_DOMAIN = b'INNO-OTA-WRAP1'
 
@@ -42,6 +47,37 @@ def _mac(value):
 
 def wrapper_filename(mac):
     return 'key-' + _mac(mac).hex() + '.bin'
+
+def group_filename(mac):
+    return f'keygroup-{reduce(xor, _mac(mac)):02x}.bin'
+
+def parse_group(name, data):
+    if (not GROUP_NAME.fullmatch(name) or not 0 < len(data) <= GROUP_RECORD_BYTES * MAX_RECIPIENTS
+            or len(data) % GROUP_RECORD_BYTES):
+        raise ValueError('invalid recipient group')
+    members = {}
+    previous = b''
+    for offset in range(0, len(data), GROUP_RECORD_BYTES):
+        mac = data[offset:offset + 6]
+        if group_filename(mac) != name or mac <= previous:
+            raise ValueError('misplaced, unsorted or duplicate recipient')
+        members[mac] = data[offset + 6:offset + GROUP_RECORD_BYTES]
+        previous = mac
+    return members
+
+def distribution_files(directory, wrappers):
+    """Reconstruct only verified bytes; require the exact original names and layout."""
+    names = {path.name for path in Path(directory).iterdir()} - {MANIFEST, release.PROTECTED_ARTIFACT}
+    if all(WRAPPER_NAME.fullmatch(name) for name in names):
+        files = {wrapper_filename(mac): wrapper for mac, wrapper in wrappers.items()}
+    else:
+        groups = {}
+        for mac, wrapper in sorted(wrappers.items()):
+            groups.setdefault(group_filename(mac), bytearray()).extend(mac + wrapper)
+        files = {name: bytes(group) for name, group in groups.items()}
+    if files.keys() != names:
+        raise ValueError('recipient dataset changed')
+    return files
 
 def _wrapper_aad(mac, sequence, ciphertext_sha256):
     if type(ciphertext_sha256) is not bytes or len(ciphertext_sha256) != 32:
@@ -75,16 +111,22 @@ def read_release(directory, ota_public_key):
     directory, envelope, ciphertext, fields = _verified_release(directory, ota_public_key)
     wrappers = {}
     digest = bytes.fromhex(fields['sha256'])
-    for path in directory.iterdir():
-        if path.name in (MANIFEST, release.PROTECTED_ARTIFACT):
-            continue
-        match = WRAPPER_NAME.fullmatch(path.name)
-        if not match or len(wrappers) >= MAX_RECIPIENTS:
-            raise ValueError('unexpected protected OTA release file')
-        mac = bytes.fromhex(match[1])
-        wrapper = read_regular(path, WRAPPER_BYTES)
-        verify_wrapper(wrapper, mac, fields['sequence'], digest, ota_public_key)
-        wrappers[mac] = wrapper
+    paths = [path for path in directory.iterdir() if path.name not in (MANIFEST, release.PROTECTED_ARTIFACT)]
+    legacy = all(WRAPPER_NAME.fullmatch(path.name) for path in paths)
+    if len(paths) > (LEGACY_MAX_RECIPIENTS if legacy else 256):
+        raise ValueError('too many protected OTA release files')
+    for path in paths:
+        if legacy:
+            mac = bytes.fromhex(WRAPPER_NAME.fullmatch(path.name)[1])
+            members = {mac: read_regular(path, WRAPPER_BYTES)}
+        else:
+            available = (MAX_RECIPIENTS - len(wrappers)) * GROUP_RECORD_BYTES
+            if not GROUP_NAME.fullmatch(path.name) or not available:
+                raise ValueError('unexpected protected OTA release file')
+            members = parse_group(path.name, read_regular(path, available))
+        for mac, wrapper in members.items():
+            verify_wrapper(wrapper, mac, fields['sequence'], digest, ota_public_key)
+        wrappers.update(members)
     if not wrappers:
         raise ValueError('protected OTA release needs enrolled devices')
     return envelope, ciphertext, wrappers

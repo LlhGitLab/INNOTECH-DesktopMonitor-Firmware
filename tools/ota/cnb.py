@@ -183,7 +183,9 @@ class Client:
         raise ValueError("redirect limit")
 
     def api(self,method,path,obj=None,missing=False):
-        raw=self.request(method,self.api_origin+path,release.compact(obj) if obj is not None else None,auth=True,missing=missing)
+        # Tag responses include all release assets. Upload handshakes retain the smaller bound.
+        limit=4*1024*1024 if method=="GET" and path.startswith(self.prefix+"/tags/") else 65536
+        raw=self.request(method,self.api_origin+path,release.compact(obj) if obj is not None else None,auth=True,missing=missing,limit=limit)
         if raw is None:return None
         return release.strict_json(raw) if raw else {}
 
@@ -225,13 +227,22 @@ def publish(directory,key,tag,client,authority):
     image=(directory/name).read_bytes();envelope=(directory/manifest).read_bytes();candidate=release.verify(envelope,image,key)
     version_files=[(name,image,release.image_limit(candidate,release.MAX_IMAGE)),(manifest,envelope,4096)]
     if candidate['profile']==release.PROTECTED_PROFILE:
-        from .protected_verify import read_release, wrapper_filename, WRAPPER_BYTES
+        import hashlib
+        from .protected_verify import read_release, distribution_files
         checked,wire,wrappers=read_release(directory,key)
-        if checked!=envelope or wire!=image or sorted(wrapper_filename(mac) for mac in wrappers)!=actions[0]['wrappers']:
+        files=distribution_files(directory,wrappers)
+        digests={name:hashlib.sha256(data).hexdigest() for name,data in files.items()}
+        if checked!=envelope or wire!=image or digests!=actions[0]['wrapper_sha256']:
             raise ValueError('protected OTA package changed')
-        version_files.extend((wrapper_filename(mac),data,WRAPPER_BYTES) for mac,data in sorted(wrappers.items()))
+        version_files.extend((name,data,len(data)) for name,data in sorted(files.items()))
     if tag=="ota-stable":raise ValueError("reserved stable tag")
-    github_identity=authority(tag,manifest,envelope,key)
+    def github_release():
+        identity=authority(tag,manifest,envelope,key)
+        check=getattr(authority,"verify_assets",None)
+        if candidate['profile']==release.PROTECTED_PROFILE and check is not None:
+            check(identity[0],{name:data for name,data,_ in version_files})
+        return identity
+    github_identity=github_release()
     stable=client.download("ota-stable",manifest,4096,missing=True)
     if stable is not None:
         previous=release.authenticate(stable,key)
@@ -249,9 +260,9 @@ def publish(directory,key,tag,client,authority):
     if latest!=stable:raise ValueError("stable changed during mirror operation")
     if stable!=envelope:
         item=client.ensure("ota-stable")
-        if authority(tag,manifest,envelope,key)!=github_identity:raise ValueError("GitHub Latest identity changed during mirroring")
+        if github_release()!=github_identity:raise ValueError("GitHub Latest identity changed during mirroring")
         def still_current():
-            if authority(tag,manifest,envelope,key)!=github_identity:raise ValueError("GitHub Latest changed before stable confirmation")
+            if github_release()!=github_identity:raise ValueError("GitHub Latest changed before stable confirmation")
         client.upload(item,manifest,envelope,True,before_confirm=still_current)
         if client.download("ota-stable",manifest,4096)!=envelope:raise ValueError("stable bytes mismatch")
     return actions

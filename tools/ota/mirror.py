@@ -2,6 +2,7 @@
 Real publishing is explicit and requires CI environment configuration.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,10 +22,13 @@ def plan(directory,key,tag):
     obj=release.authenticate(envelope,key)
     immutable=dict(phase="immutable",tag=tag,artifact=obj["artifact"],sha256=obj["sha256"])
     if obj['profile']==release.PROTECTED_PROFILE:
-        from .protected_verify import read_release, wrapper_filename
+        from .protected_verify import read_release, distribution_files
         checked,_,wrappers=read_release(directory,key)
         if checked!=envelope:raise ValueError('protected OTA manifest changed')
-        immutable['wrappers']=sorted(wrapper_filename(mac) for mac in wrappers)
+        files=distribution_files(directory,wrappers)
+        immutable['wrappers']=sorted(files)
+        immutable['recipient_count']=len(wrappers)
+        immutable['wrapper_sha256']={name:hashlib.sha256(data).hexdigest() for name,data in files.items()}
     else:
         artifact=directory/obj["artifact"]
         if set(p.name for p in directory.iterdir())!={manifest.name,obj["artifact"]} or any(p.is_symlink() or not p.is_file() for p in directory.iterdir()): raise ValueError("package contains non-allowlisted files")
